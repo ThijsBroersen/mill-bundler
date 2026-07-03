@@ -101,13 +101,6 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
         Seq(
           "node",
           rollupPath.toString,
-          copied.headOption
-            .map(_.path.toString)
-            .getOrElse(
-              throw new RuntimeException(
-                "No input files were copied; cannot run rollup"
-              )
-            ),
           "--config",
           configPath.toString
         ) ++

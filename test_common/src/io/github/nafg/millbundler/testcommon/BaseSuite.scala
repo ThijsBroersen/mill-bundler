@@ -5,6 +5,7 @@ import io.github.nafg.millbundler.jsdeps.ScalaJSDepsModule
 import scala.concurrent.duration.DurationInt
 
 import mill.*
+import mill.javalib.JavaModule
 import mill.javalib.testrunner.TestResult
 import mill.scalajslib.api.ModuleKind
 import mill.scalalib.DepSyntax
@@ -37,19 +38,22 @@ class BaseSuite extends munit.FunSuite:
       }
 
   abstract class BaseBuild extends TestRootModule with ScalaJSDepsModule:
-    override def scalaVersion = "3.7.2"
-    override def scalaJSVersion = "1.19.0"
+    override def scalaVersion = "3.8.4"
+    override def scalaJSVersion = "1.22.0"
 
     abstract class BaseTestModule
         extends TestRootModule
         with ScalaJSTests
         with TestModule.Munit:
+      /** Pin outer module — extra `TestScalaJSModule` mixins must not erase `JavaTests.moduleDeps`. */
+      override def moduleDeps: Seq[JavaModule] = Seq(BaseBuild.this)
+
       override def moduleKind = ModuleKind.CommonJSModule
 
       override def mvnDeps =
         super.mvnDeps() ++ Seq(
-          mvn"org.scalameta::munit::1.1.1",
-          mvn"io.github.nafg.scalajs-facades::react-phone-number-input_3::0.16.0"
+          mvn"org.scalameta::munit::1.3.3",
+          mvn"io.github.nafg.scalajs-facades::react-phone-number-input_3::0.19.0"
         )
 
     end BaseTestModule
