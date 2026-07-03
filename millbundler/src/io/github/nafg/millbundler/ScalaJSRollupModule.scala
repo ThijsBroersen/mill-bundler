@@ -4,6 +4,7 @@ import io.github.nafg.millbundler.jsdeps.JsDeps
 
 import mill.*
 import mill.api.PathRef
+import mill.scalajslib.api.ModuleKind
 
 //noinspection ScalaWeakerAccess
 trait ScalaJSRollupModule extends ScalaJSBundleModule:
@@ -22,55 +23,66 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
       JsDeps(devDependencies = Map("rollup" -> rollupVersion())) ++
       JsDeps.combine(rollupPlugins().map(_.toJsDep))
 
-  def rollupConfigFilename = Task("rollup.config.js")
+  def rollupConfigFilename = Task("rollup.config.mjs")
 
   def rollupOutputFormat: T[ScalaJSRollupModule.OutputFormat] = Task {
     ScalaJSRollupModule.OutputFormat.IIFE
   }
 
   def rollupConfig = Task.Anon { (params: BundleParams) =>
-    val (input: String, output: String) = params.inputFiles match
+    val inputFiles = params.inputFiles.toSeq
+    val (input: String, output: String) = inputFiles match
       case Seq()          => throw new RuntimeException("No input files")
       case Seq(inputFile) =>
         ujson.Str(inputFile.toString).render() ->
           s"""
             "file": "${(Task.dest / bundleFilename()).toString}"
           """.stripMargin
-      case inputFiles =>
+      case files =>
         ujson.Arr(
-          inputFiles.map(_.toString).map(ujson.Str(_)).toSeq*
+          files.map(_.toString).map(ujson.Str(_)).toSeq*
         ).render() ->
           s"""
             "dir": "${Task.dest.toString}",
             "entryFileNames": "${outputEntryFileNames()}"
           """.stripMargin
 
+    val outputFormat =
+      if inputFiles.size == 1 then rollupOutputFormat().value
+      else
+        moduleKind() match
+          case ModuleKind.ESModule       => ScalaJSRollupModule.OutputFormat.ES.value
+          case ModuleKind.CommonJSModule =>
+            ScalaJSRollupModule.OutputFormat.CJS.value
+          case ModuleKind.NoModule => ScalaJSRollupModule.OutputFormat.ES.value
+
     val resolveOptions =
       s"""{ modulePaths: ['${npmInstall().path.toString}/node_modules'] }"""
 
+    val plugins = rollupPlugins().distinctBy(_.packageName)
+    val imports = plugins.map(_.rollupImport).mkString("\n    ")
+    val pluginCalls =
+      plugins.map(_.rollupCall(resolveOptions)).mkString(", ")
+    val outputName =
+      if inputFiles.size == 1 then
+        rollupOutputName().fold("")(name => s""""name": "$name",\n        """)
+      else ""
+
     s"""
-    import { nodeResolve } from '@rollup/plugin-node-resolve';
-    import commonjs from '@rollup/plugin-commonjs';
-    import json from '@rollup/plugin-json';
+    $imports
     
     export default {
       input: $input,
       output: {
-        format: "${rollupOutputFormat().value}",
+        format: "$outputFormat",
         globals: {},
-        $output
+        $outputName$output
       },
-      plugins: [nodeResolve($resolveOptions), commonjs(), json()]
+      plugins: [$pluginCalls]
     }\n""".stripMargin
   }
 
   def rollupOutputName: T[Option[String]] = Task(None)
-
-  protected def rollupCliArgs = Task.Anon {
-    rollupOutputName().toSeq.flatMap(name => Seq("--name", name))
-    // ++
-    //   rollupPlugins().flatMap(_.toCliArgs)
-  }
 
   override def fastLinkJS = Task {
     val report = super.fastLinkJS()
@@ -92,10 +104,6 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
     val rollupPath =
       npmInstall().path / "node_modules" / "rollup" / "dist" / "bin" / "rollup"
 
-    // val NODE_PATH =
-    //   s"${npmInstall().path.toString}/node_modules;${Task.dest.toString}/node_modules"
-    // println(s"NODE_PATH: $NODE_PATH")
-
     try
       os.call(
         Seq(
@@ -106,19 +114,13 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
         ) ++
           Seq("--environment", "INCLUDE_DEPS,BUILD:production").filter(_ =>
             params.opt
-          )
-        // ++
-        // rollupCliArgs()
-        ,
-        // env = Map("NODE_PATH" -> NODE_PATH),
+          ),
         cwd = Task.dest
       )
     catch
       case e: Exception =>
         throw new RuntimeException("Error running rollup", e)
     end try
-
-    // unlinkNpmInstall()
 
     bundlePaths()(params.inputFiles).toSeq
   }
@@ -147,10 +149,30 @@ object ScalaJSRollupModule:
       config: Option[String] = None
   ):
     def toJsDep = JsDeps(devDependencies = Map(packageName -> version))
-    def toCliArgs = Seq("--plugin", packageName + config.fold("")("=" + _))
+
+    def rollupImport: String = packageName match
+      case "@rollup/plugin-node-resolve" =>
+        s"import { nodeResolve } from '$packageName';"
+      case _ =>
+        s"import ${Plugin.bindingName(packageName)} from '$packageName';"
+
+    def rollupCall(resolveOptions: String): String = packageName match
+      case "@rollup/plugin-node-resolve" =>
+        s"nodeResolve(${config.getOrElse(resolveOptions)})"
+      case _ =>
+        val binding = Plugin.bindingName(packageName)
+        config.fold(s"$binding()")(c => s"$binding($c)")
 
   object Plugin:
     def core(name: String) = Plugin(s"@rollup/plugin-$name")
+
+    private def bindingName(packageName: String): String =
+      packageName match
+        case "@rollup/plugin-commonjs" => "commonjs"
+        case "@rollup/plugin-json"     => "json"
+        case s"@rollup/plugin-$name"   => name.replace("-", "")
+        case _ =>
+          packageName.split('/').last.replaceAll("[^a-zA-Z0-9]", "")
 
     implicit val rw: upickle.default.ReadWriter[Plugin] =
       upickle.default.macroRW[Plugin]

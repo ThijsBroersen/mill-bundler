@@ -70,15 +70,6 @@ trait ScalaJSWebpackModule extends ScalaJSBundleModule:
           ujson.Str(npmInstall().path.toString + "/node_modules")
         )
       )
-      // "module" -> ujson.Obj(
-      //   "rules" -> ujson.Arr(
-      //     ujson.Obj(
-      //       "test" -> ujson.Str("\\.js$"),
-      //       "use" -> ujson.Arr(ujson.Str("source-map-loader")),
-      //       "enforce" -> ujson.Str("pre")
-      //     )
-      //   )
-      // )
     )
   }
 

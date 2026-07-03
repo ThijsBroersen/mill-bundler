@@ -16,7 +16,9 @@ import mill.testkit.UnitTester
 class BaseSuite extends munit.FunSuite:
   override def munitTimeout = 4.minute
 
-  private val resourceFolder = os.Path(sys.env("MILL_TEST_RESOURCE_DIR"))
+  protected val resourceFolder = os.Path(sys.env("MILL_TEST_RESOURCE_DIR"))
+
+  protected def multiEntryDir: os.Path = resourceFolder / "multi-entry"
 
   protected def checkTestResults(testResults: Seq[TestResult]): Unit =
     assert(testResults.nonEmpty, "No tests found")
@@ -33,9 +35,32 @@ class BaseSuite extends munit.FunSuite:
       .scoped { tester =>
         tester(test.testCached) match
           case Left(failing) => failing.throwException
-          case Right(UnitTester.Result((_, result), _)) =>
-            checkTestResults(result)
+          case Right(UnitTester.Result((_, results), _)) =>
+            checkTestResults(results)
       }
+
+  protected def evalTask[A](
+      module: TestRootModule,
+      resourceName: String,
+      task: Task[A]
+  ): A =
+    UnitTester(module, resourceFolder / resourceName)
+      .scoped { tester =>
+        tester(task) match
+          case Left(failing) => failing.throwException
+          case Right(UnitTester.Result(value, _)) => value.asInstanceOf[A]
+      }
+
+  protected def evalTaskExpectFailure(
+      module: TestRootModule,
+      resourceName: String,
+      task: Task[?]
+  ): Throwable =
+    try
+      evalTask(module, resourceName, task)
+      throw new AssertionError(s"Expected $task to fail")
+    catch
+      case e: Throwable => e
 
   abstract class BaseBuild extends TestRootModule with ScalaJSDepsModule:
     override def scalaVersion = "3.8.4"

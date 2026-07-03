@@ -34,48 +34,49 @@ trait ScalaJSBundleModule extends ScalaJSNpmModule:
   def bundleFilename: T[String] = "out-bundle.js"
   def outputEntryFileNames: T[String] = "out-bundle-[name].js"
 
-  def copyInputFiles = Task.Anon { (inputFiles: Iterable[os.Path]) =>
-    val copied = inputFiles.map(Task.dest / _.last)
-    for (inputFile, copiedFile) <- inputFiles.zip(copied) do
-      if inputFile != copiedFile then os.copy.over(inputFile, copiedFile)
-    copied
-  }
-
-  protected def linkInputFiles = Task.Anon { (inputFiles: Iterable[os.Path]) =>
-    for path <- inputFiles do
-      val linkPath = Task.dest / path.last
-      os.remove(linkPath)
-      os.symlink(linkPath, path)
-  }
-
   protected def linkNpmInstall = Task.Anon {
     for path <- os.list(npmInstall().path) do
       os.remove(Task.dest / path.last)
       os.symlink(Task.dest / path.last, path)
   }
 
-  protected def unlinkNpmInstall = Task.Anon {
-    for path <- os.list(npmInstall().path) do
-      os.remove(Task.dest / path.last)
-  }
+  protected def expectedBundleFilename(
+      inputFile: os.Path,
+      multiEntry: Boolean,
+      singleFilename: String,
+      entryFileNames: String
+  ): String =
+    if multiEntry then
+      val (head, tail) = entryFileNames.split("\\[name\\]") match
+        case Array(head, tail) => (head, tail)
+        case _                 =>
+          throw new RuntimeException(
+            "Invalid output bundle file names, must contain [name]"
+          )
+      val name = inputFile.last.stripSuffix(".js").stripSuffix(".map")
+      head + name + tail
+    else singleFilename
 
   protected def bundlePaths = Task.Anon { (bundles: Iterable[os.Path]) =>
-    bundles match
-      case Seq(inputFile) =>
+    val inputFiles = bundles.toSeq
+    val singleFilename = bundleFilename()
+    val entryFileNames = outputEntryFileNames()
+    inputFiles match
+      case Seq(_) =>
         List(
-          PathRef(Task.dest / bundleFilename()),
-          PathRef(Task.dest / (bundleFilename() + ".map"))
+          PathRef(Task.dest / singleFilename),
+          PathRef(Task.dest / (singleFilename + ".map"))
         )
-      case inputFiles =>
-        val (head, tail) = outputEntryFileNames().split("\\[name\\]") match
-          case Array(head, tail) => (head, tail)
-          case _                 => throw new RuntimeException(
-              "Invalid output bundle file names, must contain [name]"
-            )
-
+      case _ =>
         inputFiles.map(inputFile =>
-          val name = inputFile.last.stripSuffix(".js").stripSuffix(".map")
-          PathRef(Task.dest / (head + name + tail))
+          PathRef(
+            Task.dest / expectedBundleFilename(
+              inputFile,
+              multiEntry = true,
+              singleFilename,
+              entryFileNames
+            )
+          )
         )
     end match
   }
@@ -93,23 +94,33 @@ object ScalaJSBundleModule:
     override def fastLinkJSTest = Task {
       val report = super.fastLinkJSTest()
 
-      val params = BundleParams(
-        report.publicModules.map(report.dest.path / _.jsFileName).toSeq,
-        opt = false
-      )
+      val inputModules = report.publicModules.toSeq
+      val inputPaths =
+        inputModules.map(module => report.dest.path / module.jsFileName)
+      val multiEntry = inputPaths.size > 1
+      val singleFilename = bundleFilename()
+      val entryFileNames = outputEntryFileNames()
 
-      val bundles = bundle.apply()(params)
+      val bundles = bundle.apply()(
+        BundleParams(inputPaths, opt = false)
+      )
       val groupedBundles = bundles.groupBy(_.path.last.stripSuffix(".map"))
-      val filename = bundleFilename()
-      val modules = groupedBundles.map {
-        case (filename, bundles) =>
-          Report.Module(
-            moduleID = "main",
-            jsFileName = filename,
-            sourceMapName =
-              Some(filename + ".map").filter(_ => bundles.size > 1),
-            moduleKind = ModuleKind.NoModule
-          )
+
+      val modules = inputModules.zip(inputPaths).map { case (orig, path) =>
+        val outName = expectedBundleFilename(
+          path,
+          multiEntry,
+          singleFilename,
+          entryFileNames
+        )
+        val bundleGroup = groupedBundles.getOrElse(outName, Nil)
+        Report.Module(
+          moduleID = orig.moduleID,
+          jsFileName = outName,
+          sourceMapName =
+            Some(outName + ".map").filter(_ => bundleGroup.size > 1),
+          moduleKind = ModuleKind.NoModule
+        )
       }
       Report(publicModules = modules, dest = PathRef(Task.dest))
     }
