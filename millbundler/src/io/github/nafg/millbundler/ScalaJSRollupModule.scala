@@ -84,14 +84,7 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
 
   def rollupOutputName: T[Option[String]] = Task(None)
 
-  override def fastLinkJS = Task {
-    val report = super.fastLinkJS()
-    linkNpmInstall()
-    report
-  }
-
   override protected def bundle = Task.Anon { (params: BundleParams) =>
-
     val configPath = Task.dest / rollupConfigFilename()
 
     os.write.over(
@@ -99,7 +92,7 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
       rollupConfig()(params)
     )
 
-    linkNpmInstall()
+    linkNodeModules()
 
     val rollupPath =
       npmInstall().path / "node_modules" / "rollup" / "dist" / "bin" / "rollup"

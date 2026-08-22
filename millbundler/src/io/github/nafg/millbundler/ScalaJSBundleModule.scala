@@ -34,12 +34,6 @@ trait ScalaJSBundleModule extends ScalaJSNpmModule:
   def bundleFilename: T[String] = "out-bundle.js"
   def outputEntryFileNames: T[String] = "out-bundle-[name].js"
 
-  protected def linkNpmInstall = Task.Anon {
-    for path <- os.list(npmInstall().path) do
-      os.remove(Task.dest / path.last)
-      os.symlink(Task.dest / path.last, path)
-  }
-
   protected def expectedBundleFilename(
       inputFile: os.Path,
       multiEntry: Boolean,
@@ -79,6 +73,29 @@ trait ScalaJSBundleModule extends ScalaJSNpmModule:
           )
         )
     end match
+  }
+
+  /** Make the npm install available in the current task's dest so that bundlers
+    * running there can resolve node modules.
+    */
+  protected def linkNodeModules = Task.Anon {
+    os.copy.over(
+      npmInstall().path / "package.json",
+      Task.dest / "package.json"
+    )
+
+    for (name <- Seq("node_modules", "package-lock.json")) {
+      val target = npmInstall().path / name
+      val link = Task.dest / name
+      if (!os.isLink(link))
+        try os.symlink(link, target)
+        catch {
+          // e.g. Windows without symlink privileges, or a leftover real
+          // file/dir from a previous fallback; fall back to copying
+          case _: java.io.IOException | _: UnsupportedOperationException =>
+            os.copy.over(target, link)
+        }
+    }
   }
 
   protected def bundle: Task[BundleParams => Seq[PathRef]]

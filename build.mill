@@ -1,17 +1,10 @@
-//| mvnDeps:
-//| - "com.lihaoyi::mill-contrib-buildinfo:$MILL_VERSION"
-//| - "com.lihaoyi::mill-contrib-versionfile:$MILL_VERSION"
-
 import mill.*
-import mill.constants.BuildInfo.millVersion
-import mill.contrib.buildinfo.BuildInfo
-import mill.contrib.versionfile.VersionFileModule
+import mill.constants.BuildInfo.{millBinPlatform, millVersion}
 import mill.scalalib.*
 import mill.scalalib.publish.*
 import mill.scalalib.scalafmt.*
 import mill.util.VcsVersion
 
-object versionFile extends VersionFileModule
 
 trait BaseScalaModule extends ScalaModule:
   override def scalaVersion = "3.8.4"
@@ -30,6 +23,9 @@ trait BasePublishModule
         dirtyHashDigits = 0,
         untaggedSuffix = "-SNAPSHOT"
       )
+
+  override def platformSuffix =
+    s"_mill$millBinPlatform"
 
   override def pomSettings = PomSettings(
     description = "Bundler for Mill",

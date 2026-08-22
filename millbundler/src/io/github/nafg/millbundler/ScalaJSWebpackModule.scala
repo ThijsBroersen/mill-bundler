@@ -101,13 +101,8 @@ trait ScalaJSWebpackModule extends ScalaJSBundleModule:
       .toMap
   }
 
-  override def fastLinkJS = Task {
-    val report = super.fastLinkJS()
-    linkNpmInstall()
-    report
-  }
-
   override protected def bundle = Task.Anon { (params: BundleParams) =>
+    linkNodeModules()
 
     val configPath = Task.dest / webpackConfigFilename()
 
@@ -122,6 +117,7 @@ trait ScalaJSWebpackModule extends ScalaJSBundleModule:
     try
       os.call(
         Seq("node", webpackPath.toString, "--config", configPath.toString),
+        env = webpackEnv(),
         cwd = Task.dest
       )
     catch
