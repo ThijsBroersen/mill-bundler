@@ -36,15 +36,15 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
       case Seq(inputFile) =>
         ujson.Str(inputFile.toString).render() ->
           s"""
-            "file": "${(Task.dest / bundleFilename()).toString}"
+            "file": ${ujson.Str((Task.dest / bundleFilename()).toString).render()}
           """.stripMargin
       case files =>
         ujson.Arr(
           files.map(_.toString).map(ujson.Str(_)).toSeq*
         ).render() ->
           s"""
-            "dir": "${Task.dest.toString}",
-            "entryFileNames": "${outputEntryFileNames()}"
+            "dir": ${ujson.Str(Task.dest.toString).render()},
+            "entryFileNames": ${ujson.Str(outputEntryFileNames()).render()}
           """.stripMargin
 
     val outputFormat =
@@ -57,7 +57,7 @@ trait ScalaJSRollupModule extends ScalaJSBundleModule:
           case ModuleKind.NoModule => ScalaJSRollupModule.OutputFormat.ES.value
 
     val resolveOptions =
-      s"""{ modulePaths: ['${npmInstall().path.toString}/node_modules'] }"""
+      s"""{ modulePaths: [${ujson.Str((npmInstall().path / "node_modules").toString).render()}] }"""
 
     val plugins = rollupPlugins().distinctBy(_.packageName)
     val imports = plugins.map(_.rollupImport).mkString("\n    ")
